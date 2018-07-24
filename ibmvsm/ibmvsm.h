@@ -10,6 +10,15 @@
 #ifndef IBMVSM_H
 #define IBMVSM_H
 
+enum ibmvsm_states {
+	ibmvsm_state_sched_reset  = -1,
+	ibmvsm_state_initial      = 0,
+	ibmvsm_state_crqinit      = 1,
+	ibmvsm_state_capabilities = 2,
+	ibmvsm_state_ready        = 3,
+	ibmvsm_state_failed       = 4,
+};
+
 struct ibmvsm_crq_msg {
 	u8 valid;		/* RPA Defined */
 	u8 type;		/* ibmvsm msg type */
@@ -30,6 +39,11 @@ struct crq_server_adapter {
 	struct crq_queue queue;
 	u32 liobn;
 	u32 riobn;
+};
+
+struct ibmvsm_struct {
+	u32 state;
+	struct crq_server_adapter * adapter;
 };
 
 #define h_reg_crq(ua, tok, sz) \

@@ -2,7 +2,7 @@
 /*
  * IBM Power Systems Virtual Management Channel Support.
  *
- * Copyright (c) 2004, 2018 IBM Corp.
+ * Copyright (c) 2018 IBM Corp.
  *   Bryant G. Ly <bryantly@linux.vnet.ibm.com>
  */
 
@@ -25,6 +25,7 @@
 
 static const char ibmvsm_driver_name[] = "ibmvsm";
 
+static struct ibmvsm_struct ibmvsm;
 static struct crq_server_adapter ibmvsm_adapter;
 
 enum crq_entry_header {
@@ -214,17 +215,31 @@ static struct miscdevice ibmvsm_miscdev = {
 
 static int __init ibmvsm_module_init(void)
 {
+	int rc;
+
+	ibmvsm.state = ibmvsm_state_initial;
+	pr_info("ibmvsm: version %s\n", IBMVSM_DRIVER_VERSION);
+
+	rc = misc_register(&ibmvsm_miscdev);
+	if (rc) {
+		pr_err("ibmvsm: misc registration failed\n");
+		goto misc_register_fail;
+	}
+	pr_info("ibmvsm: node %d:%d\n", MISC_MAJOR,
+		ibmvsm_miscdev.minor);
 	/* Register Misc device */
 	/* Init data structures */
 	/* vio register */
-
 	return 0;
+
+misc_register_fail:
+	return rc;
 }
 
 static void __exit ibmvsm_module_exit(void)
 {
 	pr_info("ibmvsm: module exit\n");
-
+	misc_deregister(&ibmvsm_miscdev);
 	/* vio unregister */
 	/* misc device de-register */
 }
