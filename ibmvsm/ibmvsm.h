@@ -10,6 +10,11 @@
 #ifndef IBMVSM_H
 #define IBMVSM_H
 
+#define H_OPEN_VTERM_LP		0x3D4
+#define H_GET_TERM_CHAR_LP	0x3D8
+#define H_PUT_TERM_CHAR_LP	0x3DC
+#define H_CLOSE_VTERM_LP	0x3E0
+
 enum ibmvsm_states {
 	ibmvsm_state_sched_reset  = -1,
 	ibmvsm_state_initial      = 0,
@@ -43,7 +48,15 @@ struct crq_server_adapter {
 
 struct ibmvsm_struct {
 	u32 state;
-	struct crq_server_adapter * adapter;
+	struct crq_server_adapter *adapter;
+};
+
+struct ibmvmc_file_session;
+
+struct ibmvsm_vterm {
+	u64 console_token;
+	struct crq_server_adapter *adapter;
+	struct ibmvmc_file_session *file_session;
 };
 
 struct ibmvsm_file_session {
@@ -57,5 +70,9 @@ struct ibmvsm_file_session {
 		   plpar_hcall_norets(H_FREE_CRQ, ua)
 #define h_send_crq(ua, d1, d2) \
 		   plpar_hcall_norets(H_SEND_CRQ, ua, d1, d2)
+#define h_get_term_char_lp(buf, ua, tok) \
+		   plpar_hcall_norets(H_GET_TERM_CHAR_LP, buf, ua, tok)
+#define h_put_term_char_lp(ua, tok, len, d1, d2) \
+		   plpar_hcall_norets(H_PUT_TERM_CHAR_LP, ua, tok, len, d1, d2)
 
 #endif /* __IBMVSM_H */

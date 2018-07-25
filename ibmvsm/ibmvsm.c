@@ -23,10 +23,14 @@
 #define IBMVSM_DRIVER_VERSION "0.1"
 #define MSG_HI	0
 #define MSG_LOW	1
+#define MAX_VTERM 2
+#define MAX_VIO_PUT_CHARS	16
+#define SIZE_VIO_GET_CHARS	16
 
 static const char ibmvsm_driver_name[] = "ibmvsm";
 
 static struct ibmvsm_struct ibmvsm;
+static struct ibmvsm_vterm vterms[MAX_VTERM];
 static struct crq_server_adapter ibmvsm_adapter;
 
 enum crq_entry_header {
@@ -58,6 +62,59 @@ static long ibmvsm_send_init_msg(struct crq_server_adapter *adapter, u8 type)
 			cpu_to_be64(buffer[MSG_LOW]));
 
 	return rc;
+}
+
+/**
+ * ibmvsm_get_chars - retrieve characters from firmware for denoted vterm adapter
+ * @adapter: point to the crq server adapter
+ * @buf: The character buffer into which to put the character data fetched from
+ *	firmware.
+ */
+static long ibmvsm_get_chars(struct crq_server_adapter *adapter, u64 tok, char *buf)
+{
+	struct vio_dev *vdev = to_vio_dev(adapter->dev);
+	unsigned long retbuf[PLPAR_HCALL_BUFSIZE];
+	unsigned long *lbuf = (unsigned long *)buf;
+	long rc;
+
+	rc = h_get_term_char_lp(retbuf, vdev->unit_address, tok);
+	lbuf[MSG_HI] = be64_to_cpu(retbuf[1]);
+	lbuf[MSG_LOW] = be64_to_cpu(retbuf[2]);
+
+	if (rc == H_SUCCESS)
+		return retbuf[0];
+
+	return 0;
+}
+
+/**
+ * ibmvsm_put_chars: send characters to firmware for denoted vterm adapter
+ * @adapter: point to the crq server adapter
+ * @buf: The character buffer that contains the character data to send to
+ *	firmware.
+ * @count: Send this number of characters.
+ */
+static long ibmvsm_put_chars(struct crq_server_adapter *adapter, u64 tok,
+			     const char *buf, int count)
+{
+	struct vio_dev *vdev = to_vio_dev(adapter->dev);
+	unsigned long *lbuf = (unsigned long *) buf;
+	long rc;
+
+
+	/* hcall will ret H_PARAMETER if 'count' exceeds firmware max.*/
+	if (count > MAX_VIO_PUT_CHARS)
+		count = MAX_VIO_PUT_CHARS;
+
+	rc = h_put_term_char_lp(vdev->unit_address, tok, count,
+				cpu_to_be64(lbuf[MSG_HI]),
+				cpu_to_be64(lbuf[MSG_LOW]));
+
+	if (rc == H_SUCCESS)
+		return count;
+	if (rc == H_BUSY)
+		return -EAGAIN;
+	return -EIO;
 }
 
 /**
