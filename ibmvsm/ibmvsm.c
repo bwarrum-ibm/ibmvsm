@@ -8,6 +8,7 @@
 
 #include <linux/module.h>
 #include <linux/kernel.h>
+#include <linux/interrupt.h>
 #include <linux/fs.h>
 #include <linux/slab.h>
 #include <linux/poll.h>
@@ -43,6 +44,37 @@ enum crq_init_formats {
 	CRQ_INIT = 0x01,
 	CRQ_INIT_COMPLETE = 0x02
 };
+
+/**
+ * crq_queue_next_crq: - Returns the next entry in message queue
+ * @queue:      crq_queue to use
+ *
+ * Returns pointer to next entry in queue, or NULL if there are no new
+ * entried in the CRQ.
+ */
+static struct ibmvsm_crq_msg *crq_queue_next_crq(struct crq_queue *queue)
+{
+	struct ibmvsm_crq_msg *crq;
+	unsigned long flags;
+
+	spin_lock_irqsave(&queue->lock, flags);
+	crq = &queue->msgs[queue->cur];
+	if (crq->valid & 0x80) {
+		if (++queue->cur == queue->size)
+			queue->cur = 0;
+
+		/* Ensure the read of the valid bit occurs before reading any
+		 * other bits of the CRQ entry
+		 */
+		dma_rmb();
+	} else {
+		crq = NULL;
+	}
+
+	spin_unlock_irqrestore(&queue->lock, flags);
+
+	return crq;
+}
 
 /**
  * ibmvsm_send_init_message() - send initialization message to the client
@@ -252,6 +284,261 @@ static const struct file_operations ibmvsm_fops = {
 	.release        = ibmvsm_close,
 };
 
+/* routines for managing a command/response queue */
+/**
+ * ibmvsm_handle_event: - Interrupt handler for crq events
+ * @irq:        number of irq to handle, not used
+ * @dev_instance: crq_server_adapter that received interrupt
+ *
+ * Disables interrupts and schedules ibmvsm_task
+ *
+ * Always returns IRQ_HANDLED
+ */
+static irqreturn_t ibmvsm_handle_event(int irq, void *dev_instance)
+{
+	struct crq_server_adapter *adapter =
+		(struct crq_server_adapter *)dev_instance;
+
+	vio_disable_interrupts(to_vio_dev(adapter->dev));
+	tasklet_schedule(&adapter->work_task);
+
+	return IRQ_HANDLED;
+}
+
+/**
+ * ibmvsm_reset_crq_queue - Reset CRQ Queue
+ *
+ * @adapter:	crq_server_adapter struct
+ *
+ * This function calls h_free_crq and then calls H_REG_CRQ and does all the
+ * bookkeeping to get us back to where we can communicate.
+ *
+ * Return:
+ *	0 - Success
+ *	Non-Zero - Failure
+ */
+static int ibmvsm_reset_crq_queue(struct crq_server_adapter *adapter)
+{
+	struct vio_dev *vdev = to_vio_dev(adapter->dev);
+	struct crq_queue *queue = &adapter->queue;
+	int rc = 0;
+
+	/* Close the CRQ */
+	h_free_crq(vdev->unit_address);
+
+	/* Clean out the queue */
+	memset(queue->msgs, 0x00, PAGE_SIZE);
+	queue->cur = 0;
+
+	/* And re-open it again */
+	rc = h_reg_crq(vdev->unit_address,
+		       queue->msg_token, PAGE_SIZE);
+	if (rc == 2)
+		/* Adapter is good, but other end is not ready */
+		dev_warn(adapter->dev, "Partner adapter not ready\n");
+	else if (rc != 0)
+		dev_err(adapter->dev, "couldn't register crq--rc 0x%x\n", rc);
+
+	return rc;
+}
+
+/**
+ * ibmvsm_crq_process - Process CRQ
+ *
+ * @adapter:    crq_server_adapter struct
+ * @crq:	ibmvsm_crq_msg struct
+ *
+ * Process the CRQ message based upon the type of message received.
+ *
+ */
+static void ibmvsm_crq_process(struct crq_server_adapter *adapter,
+			       struct ibmvsm_crq_msg *crq)
+{
+	return 0;
+}
+
+/**
+ * ibmvsm_reset - Reset
+ *
+ * @adapter:	crq_server_adapter struct
+ * @xport_event:	export_event field
+ *
+ * Closes all vterm sessions and conditionally schedules a CRQ reset.
+ * @xport_event: If true, the partner closed their CRQ; we don't need to reset.
+ *               If false, we need to schedule a CRQ reset.
+ */
+static void ibmvsm_reset(struct crq_server_adapter *adapter, bool xport_event)
+{
+	return 0;
+}
+
+/**
+ * ibmvsm_handle_crq_init - Handle CRQ Init
+ *
+ * @crq:	ibmvsm_crq_msg struct
+ * @adapter:	crq_server_adapter struct
+ *
+ * Handle the type of crq initialization based on whether
+ * it is a message or a response.
+ *
+ */
+static void ibmvsm_handle_crq_init(struct ibmvsm_crq_msg *crq,
+				   struct crq_server_adapter *adapter)
+{
+	return 0;
+}
+
+/**
+ * ibmvsm_handle_crq - Handle CRQ
+ *
+ * @crq:	ibmvsm_crq_msg struct
+ * @adapter:	crq_server_adapter struct
+ *
+ * Read the command elements from the command queue and execute the
+ * requests based upon the type of crq message.
+ *
+ */
+static void ibmvsm_handle_crq(struct ibmvsm_crq_msg *crq,
+			      struct crq_server_adapter *adapter)
+{
+	switch (crq->valid) {
+	case 0xC0:		/* initialization */
+		ibmvsm_handle_crq_init(crq, adapter);
+		break;
+	case 0xFF:	/* Hypervisor telling us the connection is closed */
+		dev_warn(adapter->dev, "CRQ recv: virtual adapter failed - resetting.\n");
+		ibmvsm_reset(adapter, true);
+		break;
+	case 0x80:	/* real payload */
+		ibmvsm_crq_process(adapter, crq);
+		break;
+	default:
+		dev_warn(adapter->dev, "CRQ recv: unknown msg 0x%02x.\n",
+			 crq->valid);
+		break;
+	}
+}
+
+static void ibmvsm_task(unsigned long data)
+{
+	struct crq_server_adapter *adapter =
+		(struct crq_server_adapter *)data;
+	struct vio_dev *vdev = to_vio_dev(adapter->dev);
+	struct ibmvsm_crq_msg *crq;
+	int done = 0;
+
+	while (!done) {
+		/* Pull all the valid messages off the CRQ */
+		while ((crq = crq_queue_next_crq(&adapter->queue)) != NULL) {
+			ibmvsm_handle_crq(crq, adapter);
+			crq->valid = 0x00;
+			/* CRQ reset was requested, stop processing CRQs.
+			 * Interrupts will be re-enabled by the reset task.
+			 */
+			if (ibmvsm.state == ibmvsm_state_sched_reset)
+				return;
+		}
+
+		vio_enable_interrupts(vdev);
+		crq = crq_queue_next_crq(&adapter->queue);
+		if (crq) {
+			vio_disable_interrupts(vdev);
+			ibmvsm_handle_crq(crq, adapter);
+			crq->valid = 0x00;
+			/* CRQ reset was requested, stop processing CRQs.
+			 * Interrupts will be re-enabled by the reset task.
+			 */
+			if (ibmvsm.state == ibmvsm_state_sched_reset)
+				return;
+		} else {
+			done = 1;
+		}
+	}
+}
+
+/**
+ * ibmvsm_init_crq_queue - Init CRQ Queue
+ *
+ * @adapter:	crq_server_adapter struct
+ *
+ * Return:
+ *	0 - Success
+ *	Non-zero - Failure
+ */
+static int ibmvsm_init_crq_queue(struct crq_server_adapter *adapter)
+{
+	struct vio_dev *vdev = to_vio_dev(adapter->dev);
+	struct crq_queue *queue = &adapter->queue;
+	int rc = 0;
+	int retrc = 0;
+
+	queue->msgs = (struct ibmvsm_crq_msg *)get_zeroed_page(GFP_KERNEL);
+
+	if (!queue->msgs)
+		goto malloc_failed;
+
+	queue->size = PAGE_SIZE / sizeof(*queue->msgs);
+
+	queue->msg_token = dma_map_single(adapter->dev, queue->msgs,
+					  queue->size * sizeof(*queue->msgs),
+					  DMA_BIDIRECTIONAL);
+
+	if (dma_mapping_error(adapter->dev, queue->msg_token))
+		goto map_failed;
+
+	retrc = plpar_hcall_norets(H_REG_CRQ,
+				   vdev->unit_address,
+				   queue->msg_token, PAGE_SIZE);
+	retrc = rc;
+
+	if (rc == H_RESOURCE)
+		rc = ibmvsm_reset_crq_queue(adapter);
+
+	if (rc == 2) {
+		dev_warn(adapter->dev, "Partner adapter not ready\n");
+		retrc = 0;
+	} else if (rc != 0) {
+		dev_err(adapter->dev, "Error %d opening adapter\n", rc);
+		goto reg_crq_failed;
+	}
+
+	queue->cur = 0;
+	spin_lock_init(&queue->lock);
+
+	tasklet_init(&adapter->work_task, ibmvsm_task, (unsigned long)adapter);
+
+	if (request_irq(vdev->irq,
+			ibmvsm_handle_event,
+			0, "ibmvsm", (void *)adapter) != 0) {
+		dev_err(adapter->dev, "couldn't register irq 0x%x\n",
+			vdev->irq);
+		goto req_irq_failed;
+	}
+
+	rc = vio_enable_interrupts(vdev);
+	if (rc != 0) {
+		dev_err(adapter->dev, "Error %d enabling interrupts!!!\n", rc);
+		goto req_irq_failed;
+	}
+
+	return retrc;
+
+req_irq_failed:
+	/* Cannot have any work since we either never got our IRQ registered,
+	 * or never got interrupts enabled
+	 */
+	tasklet_kill(&adapter->work_task);
+	h_free_crq(vdev->unit_address);
+reg_crq_failed:
+	dma_unmap_single(adapter->dev,
+			 queue->msg_token,
+			 queue->size * sizeof(*queue->msgs), DMA_BIDIRECTIONAL);
+map_failed:
+	free_page((unsigned long)queue->msgs);
+malloc_failed:
+	return -ENOMEM;
+}
+
 /* Fill in the liobn and riobn fields on the adapter */
 static int read_dma_window(struct vio_dev *vdev,
 			   struct crq_server_adapter *adapter)
@@ -316,8 +603,25 @@ static int ibmvsm_probe(struct vio_dev *vdev, const struct vio_device_id *id)
 		adapter->liobn, adapter->riobn);
 
 	/* Init CRQ */
+	rc = ibmvsm_init_crq_queue(adapter);
+	if (rc != 0 && rc != H_RESOURCE) {
+		dev_err(adapter->dev, "Error initializing CRQ.  rc = 0x%x\n",
+			rc);
+		ibmvsm.state = ibmvsm_state_failed;
+		goto crq_failed;
+	}
+
+	ibmvsm.state = ibmvsm_state_crqinit;
+
+	if (ibmvsm_send_init_msg(adapter, CRQ_INIT) != 0 &&
+	    rc != H_RESOURCE)
+		dev_warn(adapter->dev, "Failed to send initialize CRQ message\n");
+
+	dev_set_drvdata(&vdev->dev, adapter);
 
 	return 0;
+crq_failed:
+	return -EPERM;
 }
 
 static int ibmvsm_remove(struct vio_dev *vdev)

@@ -36,6 +36,8 @@ struct ibmvsm_crq_msg {
 struct crq_queue {
 	struct ibmvsm_crq_msg *msgs;
 	int size, cur;
+	dma_addr_t msg_token;
+	spinlock_t lock;
 };
 
 /* VSM server adapter settings */
@@ -44,6 +46,7 @@ struct crq_server_adapter {
 	struct crq_queue queue;
 	u32 liobn;
 	u32 riobn;
+	struct tasklet_struct work_task;
 };
 
 struct ibmvsm_struct {
