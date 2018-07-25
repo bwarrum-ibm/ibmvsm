@@ -165,9 +165,52 @@ static const struct file_operations ibmvsm_fops = {
 	.release        = ibmvsm_close,
 };
 
+/* Fill in the liobn and riobn fields on the adapter */
+static int read_dma_window(struct vio_dev *vdev,
+			   struct crq_server_adapter *adapter)
+{
+	const __be32 *dma_window;
+	const __be32 *prop;
+
+	dma_window =
+		(const __be32 *)vio_get_attribute(vdev, "ibm,my-dma-window",
+						  NULL);
+	if (!dma_window) {
+		dev_warn(adapter->dev, "Couldn't find ibm,my-dma-window property\n");
+		return -1;
+	}
+
+	adapter->liobn = be32_to_cpu(*dma_window);
+	dma_window++;
+
+	prop = (const __be32 *)vio_get_attribute(vdev, "ibm,#dma-address-cells",
+						 NULL);
+	if (!prop) {
+		dev_warn(adapter->dev, "Couldn't find ibm,#dma-address-cells property\n");
+		dma_window++;
+	} else {
+		dma_window += be32_to_cpu(*prop);
+	}
+
+	prop = (const __be32 *)vio_get_attribute(vdev, "ibm,#dma-size-cells",
+						 NULL);
+	if (!prop) {
+		dev_warn(adapter->dev, "Couldn't find ibm,#dma-size-cells property\n");
+		dma_window++;
+	} else {
+		dma_window += be32_to_cpu(*prop);
+	}
+
+	/* dma_window should point to the second window now */
+	adapter->riobn = be32_to_cpu(*dma_window);
+
+	return 0;
+}
+
 static int ibmvsm_probe(struct vio_dev *vdev, const struct vio_device_id *id)
 {
 	struct crq_server_adapter *adapter = &ibmvsm_adapter;
+	int rc;
 
 	dev_set_drvdata(&vdev->dev, NULL);
 	memset(adapter, 0, sizeof(*adapter));
@@ -176,6 +219,14 @@ static int ibmvsm_probe(struct vio_dev *vdev, const struct vio_device_id *id)
 	dev_info(adapter->dev, "Probe for UA 0x%x\n", vdev->unit_address);
 
 	/* Read DMA Window */
+	rc = read_dma_window(vdev, adapter);
+	if (rc != 0) {
+		ibmvsm.state = ibmvsm_state_failed;
+		return -1;
+	}
+
+	dev_dbg(adapter->dev, "Probe: liobn 0x%x, riobn 0x%x\n",
+		adapter->liobn, adapter->riobn);
 
 	/* Init CRQ */
 
@@ -227,11 +278,16 @@ static int __init ibmvsm_module_init(void)
 	}
 	pr_info("ibmvsm: node %d:%d\n", MISC_MAJOR,
 		ibmvsm_miscdev.minor);
-	/* Register Misc device */
-	/* Init data structures */
-	/* vio register */
-	return 0;
 
+	rc = vio_register_driver(&ibmvsm_driver);
+	if (rc) {
+		pr_err("ibmvsm: rc %d from vio_register_driver\n", rc);
+		goto vio_reg_fail;
+	}
+	/* Init data structures */
+	return 0;
+vio_reg_fail:
+	misc_deregister(&ibmvsm_miscdev);
 misc_register_fail:
 	return rc;
 }
@@ -239,9 +295,8 @@ misc_register_fail:
 static void __exit ibmvsm_module_exit(void)
 {
 	pr_info("ibmvsm: module exit\n");
+	vio_unregister_driver(&ibmvsm_driver);
 	misc_deregister(&ibmvsm_miscdev);
-	/* vio unregister */
-	/* misc device de-register */
 }
 
 MODULE_AUTHOR("Bryant G. Ly <bryantly@linux.vnet.ibm.com>");
