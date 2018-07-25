@@ -246,7 +246,7 @@ static int ibmvsm_remove(struct vio_dev *vdev)
 }
 
 static struct vio_device_id ibmvsm_device_table[] = {
-	{ "ibm,vsm", "IBM,vsm" },
+	{ "serial-multiplex", "IBM,serial-multiplex" },
 	{ "", "" }
 };
 MODULE_DEVICE_TABLE(vio, ibmvsm_device_table);
