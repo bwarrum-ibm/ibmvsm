@@ -24,7 +24,7 @@ struct ibmvsm_crq_msg {
 	u8 type;		/* ibmvsm msg type */
 	u16 rsvd;
 	u32 rsvd1;
-	u64 rsvd2;
+	u64 console_token;	/* Console Token */
 };
 
 /* an RPA command/response transport queue */
@@ -44,6 +44,11 @@ struct crq_server_adapter {
 struct ibmvsm_struct {
 	u32 state;
 	struct crq_server_adapter * adapter;
+};
+
+struct ibmvsm_file_session {
+	struct file *file;
+	bool valid;
 };
 
 #define h_reg_crq(ua, tok, sz) \

@@ -9,6 +9,7 @@
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/fs.h>
+#include <linux/slab.h>
 #include <linux/poll.h>
 #include <linux/init.h>
 #include <linux/io.h>
@@ -137,7 +138,18 @@ static long ibmvsm_ioctl(struct file *file,
  */
 static int ibmvsm_open(struct inode *inode, struct file *file)
 {
-	return 0;
+	struct ibmvsm_file_session *session;
+	int rc = 0;
+
+	pr_debug("%s: inode = 0x%lx, file = 0x%lx, state = 0x%x\n", __func__,
+		 (unsigned long)inode, (unsigned long)file,
+		 ibmvsm.state);
+
+	session = kzalloc(sizeof(*session), GFP_KERNEL);
+	session->file = file;
+	file->private_data = session;
+
+	return rc;
 }
 
 /**
@@ -152,7 +164,25 @@ static int ibmvsm_open(struct inode *inode, struct file *file)
  */
 static int ibmvsm_close(struct inode *inode, struct file *file)
 {
-	return 0;
+	struct ibmvsm_file_session *session;
+	int rc = 0;
+
+	pr_debug("%s: file = 0x%lx, state = 0x%x\n", __func__,
+		 (unsigned long)file, ibmvsm.state);
+
+	session = file->private_data;
+	if (!session)
+		return -EIO;
+
+	/* Do ibmvsm session specific stuff like check if vsm adapter
+	 * available if not return -EIO, check if state is failed.
+	 * if failed state then return -EIO. Then check if vsm state
+	 * is trying to open again if so then close it.
+	 */
+
+	kzfree(session);
+
+	return rc;
 }
 
 static const struct file_operations ibmvsm_fops = {
