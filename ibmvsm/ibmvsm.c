@@ -354,7 +354,20 @@ static int ibmvsm_reset_crq_queue(struct crq_server_adapter *adapter)
 static void ibmvsm_crq_process(struct crq_server_adapter *adapter,
 			       struct ibmvsm_crq_msg *crq)
 {
-	return 0;
+	switch (crq->type) {
+	case VSM_MSG_VER_EXCH:
+	case VSM_MSG_VTERM_INT:
+	case VSM_MSG_VERSION_EXCH_RSP:
+	case VSM_MSG_SIG_VTERM_INT:
+	case VSM_MSG_ERR:
+		dev_warn(adapter->dev, "CRQ recv: unexpected msg (0x%x)\n",
+			 crq->type);
+		break;
+	default:
+		dev_warn(adapter->dev, "CRQ recv: unknown msg (0x%x)\n",
+			 crq->type);
+		break;
+	}
 }
 
 /**

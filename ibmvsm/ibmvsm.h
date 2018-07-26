@@ -15,6 +15,12 @@
 #define H_PUT_TERM_CHAR_LP	0x3DC
 #define H_CLOSE_VTERM_LP	0x3E0
 
+#define VSM_MSG_VER_EXCH		0x01
+#define VSM_MSG_VTERM_INT		0x02
+#define VSM_MSG_ERR			0x03
+#define VSM_MSG_VERSION_EXCH_RSP	0x81
+#define VSM_MSG_SIG_VTERM_INT		0x82
+
 enum ibmvsm_states {
 	ibmvsm_state_sched_reset  = -1,
 	ibmvsm_state_initial      = 0,
