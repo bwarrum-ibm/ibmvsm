@@ -24,6 +24,23 @@ enum ibmvsm_states {
 	ibmvsm_state_failed       = 4,
 };
 
+enum ibmvsm_vterm_states {
+	/* HMC connection not established */
+	ibmvterm_state_free    = 0,
+
+	/* HMC connection established (open called) */
+	ibmvterm_state_initial = 1,
+
+	/* open msg sent to HV, due to ioctl(1) call */
+	ibmvterm_state_opening = 2,
+
+	/* HMC connection ready, open resp msg from HV */
+	ibmvterm_state_ready   = 3,
+
+	/* VTERM connection failure */
+	ibmvterm_state_failed  = 4,
+};
+
 struct ibmvsm_crq_msg {
 	u8 valid;		/* RPA Defined */
 	u8 type;		/* ibmvsm msg type */
@@ -58,8 +75,11 @@ struct ibmvmc_file_session;
 
 struct ibmvsm_vterm {
 	u64 console_token;
+	u32 state;
+	u32 rsvd;
 	struct crq_server_adapter *adapter;
 	struct ibmvmc_file_session *file_session;
+	spinlock_t lock;
 };
 
 struct ibmvsm_file_session {

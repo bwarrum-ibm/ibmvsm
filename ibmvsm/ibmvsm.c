@@ -385,6 +385,32 @@ static void ibmvsm_reset(struct crq_server_adapter *adapter, bool xport_event)
 static void ibmvsm_handle_crq_init(struct ibmvsm_crq_msg *crq,
 				   struct crq_server_adapter *adapter)
 {
+	switch (crq->type) {
+	case 0x01:	/* Initialization message */
+		dev_dbg(adapter->dev, "CRQ recv: CRQ init msg - state 0x%x\n",
+			ibmvsm.state);
+		if (ibmvsm.state == ibmvsm_state_crqinit) {
+			if (ibmvsm_send_init_msg(adapter, CRQ_INIT_COMPLETE) == 0) {
+				/* Do Version Exchange */
+			} else {
+				dev_err(adapter->dev, " Unable to send init rsp\n");
+			}
+		} else {
+			dev_err(adapter->dev, "Invalid state 0x%x\n",
+				ibmvsm.state);
+		}
+
+		break;
+	case 0x02:	/* Initialization response */
+		dev_dbg(adapter->dev, "CRQ recv: initialization resp msg - state 0x%x\n",
+			ibmvsm.state);
+		if (ibmvsm.state == ibmvsm_state_crqinit)
+			/* Do Version Exchange */
+		break;
+	default:
+		dev_warn(adapter->dev, "Unknown crq message type 0x%lx\n",
+			 (unsigned long)crq->type);
+	}
 	return 0;
 }
 
@@ -657,7 +683,7 @@ static struct miscdevice ibmvsm_miscdev = {
 
 static int __init ibmvsm_module_init(void)
 {
-	int rc;
+	int rc, i;
 
 	ibmvsm.state = ibmvsm_state_initial;
 	pr_info("ibmvsm: version %s\n", IBMVSM_DRIVER_VERSION);
@@ -670,6 +696,12 @@ static int __init ibmvsm_module_init(void)
 	pr_info("ibmvsm: node %d:%d\n", MISC_MAJOR,
 		ibmvsm_miscdev.minor);
 
+	memset(vterms, 0, sizeof(struct ibmvsm_vterm) * MAX_VTERM);
+	for (i = 0; i < MAX_VTERM; i++) {
+		spin_lock_init(&vterms[i].lock);
+		vterms[i].state = ibmvterm_state_free;
+	}
+
 	rc = vio_register_driver(&ibmvsm_driver);
 	if (rc) {
 		pr_err("ibmvsm: rc %d from vio_register_driver\n", rc);
@@ -677,6 +709,7 @@ static int __init ibmvsm_module_init(void)
 	}
 	/* Init data structures */
 	return 0;
+
 vio_reg_fail:
 	misc_deregister(&ibmvsm_miscdev);
 misc_register_fail:
