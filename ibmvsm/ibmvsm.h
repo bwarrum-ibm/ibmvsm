@@ -21,6 +21,10 @@
 #define VSM_MSG_VERSION_EXCH_RSP	0x81
 #define VSM_MSG_SIG_VTERM_INT		0x82
 
+/* ioctl info */
+#define VSM_TYPE		0xCD
+#define VSM_IOCTL_SETID		_IOW(VSM_TYPE, 0x00, unsigned char *)
+
 enum ibmvsm_states {
 	ibmvsm_state_sched_reset  = -1,
 	ibmvsm_state_initial      = 0,
@@ -103,5 +107,9 @@ struct ibmvsm_file_session {
 		   plpar_hcall_norets(H_GET_TERM_CHAR_LP, buf, ua, tok)
 #define h_put_term_char_lp(ua, tok, len, d1, d2) \
 		   plpar_hcall_norets(H_PUT_TERM_CHAR_LP, ua, tok, len, d1, d2)
+#define h_open_vterm_lp(ua, sid, pid) \
+		   plpar_hcall_norets(H_OPEN_VTERM_LP, ua, sid, pid)
+#define h_close_vterm_lp(ua, tok) \
+		   plpar_hcall_norets(H_CLOSE_VTERM_LP, ua, tok)
 
 #endif /* __IBMVSM_H */

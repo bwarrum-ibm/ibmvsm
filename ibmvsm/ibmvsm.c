@@ -200,6 +200,29 @@ static unsigned int ibmvsm_poll(struct file *file, poll_table *wait)
 }
 
 /**
+ * ibmvsm_ioctl_setid - IOCTL set HMC ID
+ *
+ * @session: ibmvsm_file_session struct
+ * @new_hmc_id: HMC id field
+ *
+ * IOCTL command to setup the hmc id
+ *
+ * Return:
+ * 	0 - Success
+ * 	Non-zero - Failure
+ */
+static long ibmvsm_ioctl_setid(struct ibmvsm_file_session *session,
+			       unsigned char __user *new_hmc_id)
+{
+	/* Reserve HMC session */
+
+	/* Make sure Version exchange is done first */
+
+	/* Send H_OPEN_VTERM_LP */
+	return 0;
+}
+
+/**
  * ibmvsm_ioctl - IOCTL
  *
  * @session:	ibmvsm_file_session struct
@@ -213,7 +236,25 @@ static unsigned int ibmvsm_poll(struct file *file, poll_table *wait)
 static long ibmvsm_ioctl(struct file *file,
 			 unsigned int cmd, unsigned long arg)
 {
-	return 0;
+	struct ibmvsm_file_session *session = file->private_data;
+
+	pr_debug("ibmvsm: ioctl file=0x%lx, cmd=0x%x, arg=0x%lx, ses=0x%lx\n",
+		 (unsigned long)file, cmd, arg,
+		 (unsigned long)session);
+
+	if (!session) {
+		pr_warn("ibmvsm: ioctl: no session\n");
+		return -EIO;
+	}
+
+	switch (cmd) {
+	case VSM_IOCTL_SETID:
+		return ibmvsm_ioctl_setid(session,
+				(unsigned char __user *)arg);
+	default:
+		pr_warn("ibmvsm: unknown ioctl 0x%x\n", cmd);
+		return -EINVAL;
+	}
 }
 
 /**
