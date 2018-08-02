@@ -32,7 +32,7 @@ static const char ibmvsm_driver_name[] = "ibmvsm";
 
 static struct ibmvsm_struct ibmvsm;
 static struct ibmvsm_vterm vterms[MAX_VTERM];
-static struct crq_server_adapter ibmvsm_adapter;
+static struct crq_adapter ibmvsm_adapter;
 
 enum crq_entry_header {
 	CRQ_FREE = 0x00,
@@ -77,9 +77,9 @@ static struct ibmvsm_crq_msg *crq_queue_next_crq(struct crq_queue *queue)
 }
 
 /**
- * ibmvsm_send_init_message() - send initialization message to the client
+ * ibmvsm_send_init_message() - send initialization message to the partner
  */
-static long ibmvsm_send_init_msg(struct crq_server_adapter *adapter, u8 type)
+static long ibmvsm_send_init_msg(struct crq_adapter *adapter, u8 type)
 {
 	struct ibmvsm_crq_msg *crq;
 	struct vio_dev *vdev = to_vio_dev(adapter->dev);
@@ -98,11 +98,11 @@ static long ibmvsm_send_init_msg(struct crq_server_adapter *adapter, u8 type)
 
 /**
  * ibmvsm_get_chars - retrieve characters from firmware for denoted vterm adapter
- * @adapter: point to the crq server adapter
+ * @adapter: point to the crq adapter
  * @buf: The character buffer into which to put the character data fetched from
  *	firmware.
  */
-static long ibmvsm_get_chars(struct crq_server_adapter *adapter, u64 tok, char *buf)
+static long ibmvsm_get_chars(struct crq_adapter *adapter, u64 tok, char *buf)
 {
 	struct vio_dev *vdev = to_vio_dev(adapter->dev);
 	unsigned long retbuf[PLPAR_HCALL_BUFSIZE];
@@ -121,12 +121,12 @@ static long ibmvsm_get_chars(struct crq_server_adapter *adapter, u64 tok, char *
 
 /**
  * ibmvsm_put_chars: send characters to firmware for denoted vterm adapter
- * @adapter: point to the crq server adapter
+ * @adapter: point to the crq adapter
  * @buf: The character buffer that contains the character data to send to
  *	firmware.
  * @count: Send this number of characters.
  */
-static long ibmvsm_put_chars(struct crq_server_adapter *adapter, u64 tok,
+static long ibmvsm_put_chars(struct crq_adapter *adapter, u64 tok,
 			     const char *buf, int count)
 {
 	struct vio_dev *vdev = to_vio_dev(adapter->dev);
@@ -329,7 +329,7 @@ static const struct file_operations ibmvsm_fops = {
 /**
  * ibmvsm_handle_event: - Interrupt handler for crq events
  * @irq:        number of irq to handle, not used
- * @dev_instance: crq_server_adapter that received interrupt
+ * @dev_instance: crq_adapter that received interrupt
  *
  * Disables interrupts and schedules ibmvsm_task
  *
@@ -337,8 +337,8 @@ static const struct file_operations ibmvsm_fops = {
  */
 static irqreturn_t ibmvsm_handle_event(int irq, void *dev_instance)
 {
-	struct crq_server_adapter *adapter =
-		(struct crq_server_adapter *)dev_instance;
+	struct crq_adapter *adapter =
+		(struct crq_adapter *)dev_instance;
 
 	vio_disable_interrupts(to_vio_dev(adapter->dev));
 	tasklet_schedule(&adapter->work_task);
@@ -349,7 +349,7 @@ static irqreturn_t ibmvsm_handle_event(int irq, void *dev_instance)
 /**
  * ibmvsm_reset_crq_queue - Reset CRQ Queue
  *
- * @adapter:	crq_server_adapter struct
+ * @adapter:	crq_adapter struct
  *
  * This function calls h_free_crq and then calls H_REG_CRQ and does all the
  * bookkeeping to get us back to where we can communicate.
@@ -358,7 +358,7 @@ static irqreturn_t ibmvsm_handle_event(int irq, void *dev_instance)
  *	0 - Success
  *	Non-Zero - Failure
  */
-static int ibmvsm_reset_crq_queue(struct crq_server_adapter *adapter)
+static int ibmvsm_reset_crq_queue(struct crq_adapter *adapter)
 {
 	struct vio_dev *vdev = to_vio_dev(adapter->dev);
 	struct crq_queue *queue = &adapter->queue;
@@ -386,13 +386,13 @@ static int ibmvsm_reset_crq_queue(struct crq_server_adapter *adapter)
 /**
  * ibmvsm_crq_process - Process CRQ
  *
- * @adapter:    crq_server_adapter struct
+ * @adapter:    crq_adapter struct
  * @crq:	ibmvsm_crq_msg struct
  *
  * Process the CRQ message based upon the type of message received.
  *
  */
-static void ibmvsm_crq_process(struct crq_server_adapter *adapter,
+static void ibmvsm_crq_process(struct crq_adapter *adapter,
 			       struct ibmvsm_crq_msg *crq)
 {
 	switch (crq->type) {
@@ -414,14 +414,14 @@ static void ibmvsm_crq_process(struct crq_server_adapter *adapter,
 /**
  * ibmvsm_reset - Reset
  *
- * @adapter:	crq_server_adapter struct
+ * @adapter:	crq_adapter struct
  * @xport_event:	export_event field
  *
  * Closes all vterm sessions and conditionally schedules a CRQ reset.
  * @xport_event: If true, the partner closed their CRQ; we don't need to reset.
  *               If false, we need to schedule a CRQ reset.
  */
-static void ibmvsm_reset(struct crq_server_adapter *adapter, bool xport_event)
+static void ibmvsm_reset(struct crq_adapter *adapter, bool xport_event)
 {
 	return 0;
 }
@@ -430,14 +430,14 @@ static void ibmvsm_reset(struct crq_server_adapter *adapter, bool xport_event)
  * ibmvsm_handle_crq_init - Handle CRQ Init
  *
  * @crq:	ibmvsm_crq_msg struct
- * @adapter:	crq_server_adapter struct
+ * @adapter:	crq_adapter struct
  *
  * Handle the type of crq initialization based on whether
  * it is a message or a response.
  *
  */
 static void ibmvsm_handle_crq_init(struct ibmvsm_crq_msg *crq,
-				   struct crq_server_adapter *adapter)
+				   struct crq_adapter *adapter)
 {
 	switch (crq->type) {
 	case 0x01:	/* Initialization message */
@@ -472,14 +472,14 @@ static void ibmvsm_handle_crq_init(struct ibmvsm_crq_msg *crq,
  * ibmvsm_handle_crq - Handle CRQ
  *
  * @crq:	ibmvsm_crq_msg struct
- * @adapter:	crq_server_adapter struct
+ * @adapter:	crq_adapter struct
  *
  * Read the command elements from the command queue and execute the
  * requests based upon the type of crq message.
  *
  */
 static void ibmvsm_handle_crq(struct ibmvsm_crq_msg *crq,
-			      struct crq_server_adapter *adapter)
+			      struct crq_adapter *adapter)
 {
 	switch (crq->valid) {
 	case 0xC0:		/* initialization */
@@ -501,8 +501,8 @@ static void ibmvsm_handle_crq(struct ibmvsm_crq_msg *crq,
 
 static void ibmvsm_task(unsigned long data)
 {
-	struct crq_server_adapter *adapter =
-		(struct crq_server_adapter *)data;
+	struct crq_adapter *adapter =
+		(struct crq_adapter *)data;
 	struct vio_dev *vdev = to_vio_dev(adapter->dev);
 	struct ibmvsm_crq_msg *crq;
 	int done = 0;
@@ -539,13 +539,13 @@ static void ibmvsm_task(unsigned long data)
 /**
  * ibmvsm_init_crq_queue - Init CRQ Queue
  *
- * @adapter:	crq_server_adapter struct
+ * @adapter:	crq_adapter struct
  *
  * Return:
  *	0 - Success
  *	Non-zero - Failure
  */
-static int ibmvsm_init_crq_queue(struct crq_server_adapter *adapter)
+static int ibmvsm_init_crq_queue(struct crq_adapter *adapter)
 {
 	struct vio_dev *vdev = to_vio_dev(adapter->dev);
 	struct crq_queue *queue = &adapter->queue;
@@ -619,12 +619,10 @@ malloc_failed:
 	return -ENOMEM;
 }
 
-/* Fill in the liobn and riobn fields on the adapter */
-static int read_dma_window(struct vio_dev *vdev,
-			   struct crq_server_adapter *adapter)
+/* Fill in DMA fields on the adapter */
+static int read_dma_window(struct vio_dev *vdev, struct crq_adapter *adapter)
 {
 	const __be32 *dma_window;
-	const __be32 *prop;
 
 	dma_window =
 		(const __be32 *)vio_get_attribute(vdev, "ibm,my-dma-window",
@@ -634,36 +632,16 @@ static int read_dma_window(struct vio_dev *vdev,
 		return -1;
 	}
 
+	/* Liobn is the first cell in the DMA window, followed by an offset and
+	 * the size of the pane.  We're just interested in the liobn.
+	 */
 	adapter->liobn = be32_to_cpu(*dma_window);
-	dma_window++;
-
-	prop = (const __be32 *)vio_get_attribute(vdev, "ibm,#dma-address-cells",
-						 NULL);
-	if (!prop) {
-		dev_warn(adapter->dev, "Couldn't find ibm,#dma-address-cells property\n");
-		dma_window++;
-	} else {
-		dma_window += be32_to_cpu(*prop);
-	}
-
-	prop = (const __be32 *)vio_get_attribute(vdev, "ibm,#dma-size-cells",
-						 NULL);
-	if (!prop) {
-		dev_warn(adapter->dev, "Couldn't find ibm,#dma-size-cells property\n");
-		dma_window++;
-	} else {
-		dma_window += be32_to_cpu(*prop);
-	}
-
-	/* dma_window should point to the second window now */
-	adapter->riobn = be32_to_cpu(*dma_window);
-
 	return 0;
 }
 
 static int ibmvsm_probe(struct vio_dev *vdev, const struct vio_device_id *id)
 {
-	struct crq_server_adapter *adapter = &ibmvsm_adapter;
+	struct crq_adapter *adapter = &ibmvsm_adapter;
 	int rc;
 
 	dev_set_drvdata(&vdev->dev, NULL);
@@ -679,8 +657,7 @@ static int ibmvsm_probe(struct vio_dev *vdev, const struct vio_device_id *id)
 		return -1;
 	}
 
-	dev_dbg(adapter->dev, "Probe: liobn 0x%x, riobn 0x%x\n",
-		adapter->liobn, adapter->riobn);
+	dev_dbg(adapter->dev, "Probe: liobn 0x%x\n", adapter->liobn);
 
 	/* Init CRQ */
 	rc = ibmvsm_init_crq_queue(adapter);
@@ -706,7 +683,7 @@ crq_failed:
 
 static int ibmvsm_remove(struct vio_dev *vdev)
 {
-	struct crq_server_adapter *adapter = dev_get_drvdata(&vdev->dev);
+	struct crq_adapter *adapter = dev_get_drvdata(&vdev->dev);
 
 	dev_info(adapter->dev, "Entering remove for UA 0x%x\n",
 		 vdev->unit_address);

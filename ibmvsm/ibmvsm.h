@@ -67,18 +67,17 @@ struct crq_queue {
 	spinlock_t lock;
 };
 
-/* VSM server adapter settings */
-struct crq_server_adapter {
+/* VSM adapter settings */
+struct crq_adapter {
 	struct device *dev;
 	struct crq_queue queue;
 	u32 liobn;
-	u32 riobn;
 	struct tasklet_struct work_task;
 };
 
 struct ibmvsm_struct {
 	u32 state;
-	struct crq_server_adapter *adapter;
+	struct crq_adapter *adapter;
 };
 
 struct ibmvmc_file_session;
@@ -87,7 +86,7 @@ struct ibmvsm_vterm {
 	u64 console_token;
 	u32 state;
 	u32 rsvd;
-	struct crq_server_adapter *adapter;
+	struct crq_adapter *adapter;
 	struct ibmvmc_file_session *file_session;
 	spinlock_t lock;
 };
