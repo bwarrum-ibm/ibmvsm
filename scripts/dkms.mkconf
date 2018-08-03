@@ -34,7 +34,7 @@ fi
 cat >${filename} <<EOF
 PACKAGE_NAME="${pkgname}"
 PACKAGE_VERSION="${pkgver}"
-MAKE[0]="cd ibmvsm; make -f Makefile.dkms all KVERSION=${KERNELVER}"
+MAKE[0]="cd ibmvsm; make -f Makefile.dkms all KVERSION=${KERNELVER} DKMS_TREE=\$dkms_tree SRC_TREE=\$source_tree"
 CLEAN="cd ibmvsm; make -f Makefile.dkms clean"
 BUILT_MODULE_NAME[0]="ibmvsm"
 BUILT_MODULE_LOCATION[0]="ibmvsm/"

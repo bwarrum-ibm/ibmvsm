@@ -15,9 +15,8 @@ INSTALLDIR = /lib/modules/$(KVERSION)/kernel/drivers/misc
 
 # Check for DEBUG (Logs to /var/log/kern.log)
 ifdef DEBUG
-		CFLAGS_$(TARGET).o := -DDEBUG
+	export CFLAGS_$(TARGET).o := -g -DDEBUG -fdebug-prefix-map=${DKMS_TREE}/${module}/${module_version}/build/=${SRC_TREE}/${module}-${module_version}/
 endif
-
 # Objects to build
 obj-m := $(TARGET).o
 

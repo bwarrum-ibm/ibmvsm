@@ -85,7 +85,7 @@ cp -ra "${IBMVSM_SOURCE_LOCATION}" "${IBMVSM_SOURCE_DESTINATION}"
 
 # Build and place the DKMS configuration file with the source
 if [ -f "${basedir}/scripts/${DKMS_SCRIPT}" ]; then
-    "${basedir}/scripts/${DKMS_SCRIPT}" "-n ${IBMVSM_MODULE_NAME}-dkms" "-v ${IBMVSM_VERSION}" "-f ${DKMS_CONF_LOCATION}" "-d ${IBMVSM_STRIP_DEBUG}"
+    "${basedir}/scripts/${DKMS_SCRIPT}" -n "${IBMVSM_MODULE_NAME}-dkms" -v "${IBMVSM_VERSION}" -f "${DKMS_CONF_LOCATION}" -d "${IBMVSM_STRIP_DEBUG}"
 else
     echo "Missing DKMS build script ${DKMS_SCRIPT}" && exit 1
 fi
